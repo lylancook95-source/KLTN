@@ -177,7 +177,7 @@
                 </div>
 
                 <div class="corp-card p-6">
-                    <h3 class="text-xs font-bold text-slate-400 mb-4 uppercase tracking-widest">Nhật ký vận hành</h3>
+                    <h3 class="text-xs font-bold text-slate-400 mb-4 uppercase tracking-widest">Lịch sử vận hành</h3>
                     <div id="logArea" class="h-[150px] overflow-y-auto text-[10px] text-slate-500 space-y-1">
                         <div>> Đang kết nối server...</div>
                     </div>
@@ -538,8 +538,66 @@
 
             document.getElementById('cameraButton').onclick = async () => {
                 showNotify("AI: Bắt đầu quét hình ảnh...");
-                await fetch(api.camera, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({"camera": 1}) });
-                setTimeout(async () => { await fetch(api.camera, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({"camera": 0}) }); }, 200);
+
+                try {
+                    // 1. Gửi lệnh chụp ảnh
+                    await fetch(api.camera, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ "camera": 1 })
+                    });
+
+                    // Tắt tín hiệu chụp sau 200ms
+                    setTimeout(async () => {
+                        await fetch(api.camera, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ "camera": 0 })
+                        });
+                    }, 200);
+
+                    // 2. Chờ 3 giây để AI xử lý và cập nhật Database
+                    showNotify("AI: Đang phân tích hình ảnh...");
+
+                    setTimeout(async () => {
+                        const res = await fetch(api.detect);
+                        const result = await res.json();
+
+                        if (result.data && result.data.objects) {
+                            // Chuyển tất cả key về chữ thường để so sánh dễ dàng
+                            const detectedKeys = Object.keys(result.data.objects).map(k => k.toLowerCase());
+
+                            // Kiểm tra điều kiện 1: "khong phat hien" hoặc "to" -> KẾT TƠ
+                            const isKnotting = detectedKeys.some(key =>
+                                key.includes("khong phat hien") || key.includes("to")
+                            );
+
+                            // Kiểm tra điều kiện 2: "nam" -> QUẢ THỂ
+                            const isFruiting = detectedKeys.some(key =>
+                                key.includes("nam")
+                            );
+
+                            if (isKnotting) {
+                                showNotify("AI: Phát hiện tơ nấm. Chuyển sang KẾT TƠ");
+                                deviceStates.button6 = 1; // Kết tơ ON
+                                deviceStates.button7 = 0; // Quả thể OFF
+                                sendAllButtonStates("Hệ thống: Tự động chuyển Giai đoạn Kết tơ");
+                            } 
+                            else if (isFruiting) {
+                                showNotify("AI: Phát hiện nấm trưởng thành. Chuyển sang QUẢ THỂ");
+                                deviceStates.button6 = 0; // Kết tơ OFF
+                                deviceStates.button7 = 1; // Quả thể ON
+                                sendAllButtonStates("Hệ thống: Tự động chuyển Giai đoạn Quả thể");
+                            } 
+                            else {
+                                showNotify("AI: Phân tích hoàn tất. Chưa cần thay đổi giai đoạn.");
+                            }
+                        }
+                    }, 3000);
+
+                } catch (e) {
+                    showNotify("Lỗi: Không thể thực hiện giám sát AI");
+                }
             };
 
             setInterval(ReadSensorData, 500);
